@@ -5,7 +5,7 @@
 #include <dt-bindings/gpio/gpio.h>
 
 / {
-	model = "mt7981-sn-r1";
+	model = "mt7981-sn-r1-longlife";
 	compatible = "mediatek,mt7981", "mediatek,mt7981-rfb";
 };
 
@@ -13,8 +13,7 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&mmc0_pins_default>;
 	bus-width = <8>;
-	max-frequency = <52000000>;
-	cap-mmc-highspeed;
+	max-frequency = <26000000>;
 	cap-mmc-hw-reset;
 	vmmc-supply = <&reg_3p3v>;
 	non-removable;

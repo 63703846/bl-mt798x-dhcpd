@@ -19,22 +19,26 @@ on:
         default: 'cmcc_a10'
         type: string
       FIP_VERSION: 
-        description: 'FIP versions (comma-separated, e.g. 2022,2023,2024,2025,SP1,2026/all)'
+        description: 'FIP version selection (all only for single model builds)'
         required: true
         default: '2025'
-        type: string
+        type: choice
+        options:
+          - SP1
+          - 2025
+          - all
       REPO_URL:
         description: 'Source repository'
         required: true
         default: 'https://github.com/Yuzhii0718/bl-mt798x-dhcpd'
         type: string
       REPO_BRANCH:
-        description: 'Repository branch (auto: 2022~2024 -> old-version, 2025/SP1 -> master, 2026 -> mtksoc-20260123; all -> master)'
+        description: 'Repository branch (auto will pick master)'
         required: true
         default: 'auto'
         type: string
       VARIANT:
-        description: 'Build variant (only effective for 2025/2026)'
+        description: 'Build variant (only effective for SP1/2025)'
         required: false
         default: 'default'
         type: choice
@@ -51,11 +55,6 @@ on:
           - default
           - multi_layout
           - dis_fixed_mtdparts
-      GEN_BL2:
-        description: 'Generate BL2 binary(v22/23 only)'
-        required: false
-        default: false
-        type: boolean
       ssh:
         description: 'SSH connection to Actions'
         required: false
@@ -82,15 +81,9 @@ env:
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
   # ATF and U-Boot versions mapping/path
-  atf22: atf-20220606-637ba581b
-  uboot22: uboot-mtk-20220606
-  atf23: atf-20231013-0ea67d76a
-  uboot23: uboot-mtk-20230718-09eda825
   atf24: atf-20240117-bacca82a8
   uboot25: uboot-mtk-20250711
   atf25: atf-20250711
-  uboot26: uboot-mtk-20260123
-  atf26: atf-20260123
 
 jobs:
   build:
@@ -128,16 +121,16 @@ jobs:
             ;;
         esac
 
-        # Note: VARIANT is injected into build.sh only for 2025/2026 builds; EXTRA_OPTION applies to all versions
+        # Note: VARIANT is injected into build.sh only for SP1/2025 builds; EXTRA_OPTION applies to all versions
         FIP_INPUT="${{ github.event.inputs.FIP_VERSION }}"
         if [[ "$FIP_INPUT" =~ ^(.+)-(mt798[0-9]+)$ ]]; then
           FIP_INPUT="${BASH_REMATCH[1]}"
         fi
         if [ "$FIP_INPUT" != "all" ]; then
-          if ! echo ",${FIP_INPUT}," | grep -Eq ',(2025|2026)(,|$)'; then
+          if ! echo ",${FIP_INPUT}," | grep -Eq ',(SP1|2025)(,|$)'; then
             if [ "$VARIANT_IN" != "default" ] || [ "$EXTRA_IN" != "default" ]; then
               if [ "$VARIANT_IN" != "default" ]; then
-                echo "Note: current FIP_VERSION=$FIP_INPUT does not include 2025/2026; VARIANT will be ignored (EXTRA_OPTION still applies)."
+                echo "Note: current FIP_VERSION=$FIP_INPUT does not include SP1/2025; VARIANT will be ignored (EXTRA_OPTION still applies)."
               fi
             fi
           fi
@@ -169,55 +162,11 @@ jobs:
         REPO_URL_IN="$REPO_URL"
         REPO_BRANCH_IN="$REPO_BRANCH_INPUT"
 
-
-        # Auto-detect branch logic:
-        # - 2022/2023/2024 -> old-version
-        # - 2025/SP1       -> master
-        # - 2026           -> mtksoc-20260123
-        # - all            -> master (later steps will only build versions that exist in this branch)
-        FIP_INPUT="${{ github.event.inputs.FIP_VERSION }}"
-        if [[ "$FIP_INPUT" =~ ^(.+)-(mt798[0-9]+)$ ]]; then
-          FIP_INPUT="${BASH_REMATCH[1]}"
-        fi
-
+        # Auto-detect branch logic: if REPO_BRANCH=auto, use master
         if [ -n "$REPO_BRANCH_IN" ] && [ "$REPO_BRANCH_IN" != "auto" ]; then
           REPO_REF="$REPO_BRANCH_IN"
         else
-          if [ "$FIP_INPUT" = "all" ]; then
-            REPO_REF="master"
-          else
-            VERSIONS_STR="$(echo "$FIP_INPUT" | tr -d '[:space:]')"
-            has_legacy=0
-            has_main=0
-            has_2026=0
-
-            IFS=',' read -ra _VERS <<< "$VERSIONS_STR"
-            for v in "${_VERS[@]}"; do
-              [ -z "$v" ] && continue
-              case "$v" in
-                2022|2023|2024) has_legacy=1 ;;
-                2025|SP1) has_main=1 ;;
-                2026) has_2026=1 ;;
-              esac
-            done
-
-            selected_groups=$((has_legacy + has_main + has_2026))
-            if [ "$selected_groups" -gt 1 ]; then
-              echo "Error: REPO_BRANCH=auto cannot map requested versions to a single source branch: $VERSIONS_STR" >&2
-              echo "Please either:" >&2
-              echo "  - Select versions from the same version group only, or" >&2
-              echo "  - Manually set REPO_BRANCH." >&2
-              exit 1
-            fi
-
-            if [ "$has_2026" -eq 1 ]; then
-              REPO_REF="mtksoc-20260123"
-            elif [ "$has_legacy" -eq 1 ]; then
-              REPO_REF="old-version"
-            else
-              REPO_REF="master"
-            fi
-          fi
+          REPO_REF="master"
         fi
 
         echo "Using source: $REPO_URL_IN (ref: $REPO_REF)"
@@ -270,14 +219,6 @@ jobs:
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
-    - name: Parse FIP version input
-      run: |
-        IFS=',' read -ra VERSIONS <<< "${{ github.event.inputs.FIP_VERSION }}"
-        echo "Parsed versions:"
-        for version in "${VERSIONS[@]}"; do
-          echo "Processing version: $version"
-        done
-
     - name: Parse model lists
       run: |
         set -euo pipefail
@@ -294,8 +235,8 @@ jobs:
 
         # Parse the list of versions to process based on FIP_INPUT
         if [ "$FIP_INPUT" = "all" ]; then
-          SUPPORTED_VERSIONS=("2022" "2023" "2024" "2025" "SP1" "2026")
-          echo "Detected 'all', will probe available versions in current branch from: ${SUPPORTED_VERSIONS[*]}"
+          SUPPORTED_VERSIONS=("SP1" "2025")
+          echo "Detected 'all', will parse: ${SUPPORTED_VERSIONS[*]}"
         else
           IFS=',' read -ra SUPPORTED_VERSIONS <<< "$FIP_INPUT"
           echo "Will parse selected: ${SUPPORTED_VERSIONS[*]}"
@@ -304,12 +245,8 @@ jobs:
         version_to_dirs() {
           local v="$1"
           case "$v" in
-            2022) echo "${{ env.atf22 }}" "${{ env.uboot22 }}" ;;
-            2023) echo "${{ env.atf23 }}" "${{ env.uboot23 }}" ;;
-            2024) echo "${{ env.atf24 }}" "${{ env.uboot23 }}" ;;
-            2025) echo "${{ env.atf25 }}" "${{ env.uboot25 }}" ;;
-            2026) echo "${{ env.atf26 }}" "${{ env.uboot26 }}" ;;
             SP1) echo "${{ env.atf24 }}" "${{ env.uboot25 }}" ;;
+            2025) echo "${{ env.atf25 }}" "${{ env.uboot25 }}" ;;
             *) echo "" "" ;;
           esac
         }
@@ -357,10 +294,6 @@ jobs:
             echo "Unknown version mapping: $version, skip"
             continue
           fi
-          if [ ! -d "$ATF_DIR" ] || [ ! -d "$UBOOT_DIR" ]; then
-            echo "Version $version not found in current branch (missing $ATF_DIR or $UBOOT_DIR), skipping"
-            continue
-          fi
           models=$(collect_models "$ATF_DIR" "$UBOOT_DIR" || true)
           if [ -z "$models" ]; then
             echo "No available models found for $version: missing ATF/UBoot defconfig intersection, skipping"
@@ -388,41 +321,6 @@ jobs:
         echo "MODEL_LIST_DIR=$PWD/model_lists" >> $GITHUB_ENV
         echo "MODEL_LIST_READY=1" >> $GITHUB_ENV
 
-    - name: ATF22/23 BL2 generation config patch
-      if: github.event.inputs.GEN_BL2 == 'true' && !cancelled()
-      run: |
-        set -euo pipefail
-        cd bl-mt798x-dhcpd
-
-        MODEL="${{ github.event.inputs.MODEL }}"
-        DEFCONF="mt7981_${MODEL}_defconfig"
-
-        try_patch_defconfig() {
-          local path="$1"
-          if [ -f "$path" ]; then
-            if grep -q '^CONFIG_TARGET_FIP_NO_SEC_BOOT=y$' "$path"; then
-              sed -i 's/^CONFIG_TARGET_FIP_NO_SEC_BOOT=y$/CONFIG_TARGET_ALL_NO_SEC_BOOT=y/' "$path"
-              echo "Patched: $path"
-            else
-              echo "Skip (no target line): $path"
-            fi
-            return 0
-          fi
-          return 1
-        }
-
-        # Patch defconfig for ATF 22/23 versions
-        for atf_dir in "${{ env.atf22 }}" "${{ env.atf23 }}"; do
-          echo "Checking ATF dir: $atf_dir"
-          if try_patch_defconfig "${atf_dir}/configs/${DEFCONF}"; then
-            echo "Successfully patched defconfig file: ${atf_dir}/configs/${DEFCONF}"
-          else
-            echo "Warning: defconfig not found for $atf_dir (searched configs/, atf/configs/)"
-          fi
-        done
-        echo "status=success" >> $GITHUB_OUTPUT
-        echo "GEN_BL2=1" >> $GITHUB_ENV
-
     - name: Build FIP
       id: compile
       run: |
@@ -443,8 +341,8 @@ jobs:
 
         # Parse the list of versions to process based on FIP_INPUT
         if [ "$FIP_INPUT" = "all" ]; then
-          SUPPORTED_VERSIONS=("2022" "2023" "2024" "2025" "SP1" "2026")
-          echo "Detected 'all', will build available versions in current branch from: ${SUPPORTED_VERSIONS[*]}"
+          SUPPORTED_VERSIONS=("SP1" "2025")
+          echo "Detected 'all', will build: ${SUPPORTED_VERSIONS[*]}"
         else
           IFS=',' read -ra SUPPORTED_VERSIONS <<< "$FIP_INPUT"
           echo "Will build selected: ${SUPPORTED_VERSIONS[*]}"
@@ -522,8 +420,8 @@ jobs:
                 ;;
             esac
 
-            # VARIANT: effective only for 2025/2026; for other versions, force to default to avoid inconsistent descriptions (since build.sh only checks VARIANT for 2025/2026)
-            if [ "$version" = "2025" ] || [ "$version" = "2026" ]; then
+            # VARIANT: effective only for SP1/2025; for other versions, force to default to avoid inconsistent descriptions (since build.sh only checks VARIANT for SP1/2025)
+            if [ "$version" = "2025" ] || [ "$version" = "SP1" ]; then
               VARIANT="$VARIANT_INPUT"
               # variant ubootmod does not support multi_layout (consistent with build.sh logic), so we force disable it here to avoid inconsistent descriptions in the output
               if [ "$VARIANT" = "ubootmod" ]; then
@@ -637,9 +535,9 @@ jobs:
         echo "- Extra options: ${{ github.event.inputs.EXTRA_OPTION }}" >> release.txt
 
         if [ "${{ github.event.inputs.VARIANT }}" = "nonmbm" ]; then
-          echo "- Enabled NONMBM variant (2025/2026 only)" >> release.txt
+          echo "- Enabled NONMBM variant (SP1/2025 only)" >> release.txt
         elif [ "${{ github.event.inputs.VARIANT }}" = "ubootmod" ]; then
-          echo "- Enabled UBOOTMOD variant (2025/2026 only)" >> release.txt
+          echo "- Enabled UBOOTMOD variant (SP1/2025 only)" >> release.txt
         else
           echo "- Using DEFAULT variant" >> release.txt
         fi
@@ -648,9 +546,6 @@ jobs:
           echo "- FIXED_MTDPARTS disabled" >> release.txt
         elif [ "${{ github.event.inputs.EXTRA_OPTION }}" = "multi_layout" ]; then
           echo "- MULTI_LAYOUT enabled" >> release.txt
-        fi
-        if [ "${{ github.event.inputs.GEN_BL2 }}" = "true" ]; then
-          echo "- ATF22/23 BL2 generation enabled" >> release.txt
         fi
         if [ "${{ github.event.inputs.MODEL }}" = "all" ]; then
           echo "- Model list files for each version output (MODEL=all)" >> release.txt

@@ -92,8 +92,8 @@ Other options:
 | Option | type | required | default | description |
 | --- | --- | --- | --- | --- |
 | SOC | string | false | null | Auto detected, you can set SOC=mt7981, SOC=mt7986 or other mt798x platforms |
-| MULTI_LAYOUT | boolean | false | 0 | You can set MULTI_LAYOUT=1 to enable multi-layout support |
-| FIXED_MTDPARTS | boolean | false | 1 | You can set FIXED_MTDPARTS=0 to make mtdparts editable, but it may cause some issues if you don't know what you are doing, so it's default to 1 to use fixed mtdparts. |
+| MULTI_LAYOUT | boolean | false | 0 | You can set MULTI_LAYOUT=1 to enable multi-layout support(Only for nand devices) |
+| FIXED_MTDPARTS | boolean | false | 1 | You can set FIXED_MTDPARTS=0 to make mtdparts editable, but it may cause some issues if you don't know what you are doing, so it's default to 1 to use fixed mtdparts.(Only for nand devices) |
 | FSTHEME | string | false | new | You can set FSTHEME=new/gl/mtk to change the failsafe web UI theme, new/gl/mtk |
 | SIMG | boolean | false | null | SIMG=1 means enable single image upgrade support in the failsafe web UI, but it may cause some issues if you don't know what you are doing, so it's default to 0 to disable it. |
 | CLEAN | boolean | false | null | You can set CLEAN=1 to clean the build environment before build |
@@ -106,7 +106,7 @@ Generated files will be in the `output`
 
 - [x] Build FIP
   - [x] single-board/all/all-mt798x
-  - [x] Version 2022/2023/2024/2025/2026/SP1/all
+  - [x] Version 2022/2023/2024/2025/2026/SP1/SP2/all
   - [ ] VARIANT
   - [ ] Extra Options
   > VERSION:all only for single-board
@@ -197,6 +197,14 @@ then will generate BL2 in the `output` directory. Normally, it will generate ram
 
 > Limit each adjustment to 100MHz
 
+ARMPLL frequency range adjustment support for different platforms:
+
+| Version | mt7622 | mt7629 | mt7981 | mt7986 | mt7987 | mt7988 |
+| --- | --- | --- | --- | --- | --- | --- |
+| TF-A 2024 | No | No | 1.3GHz~1.8GHz | 1.6GHz~2.5GHz | No | No |
+| TF-A 2025 | No | No | 1.3GHz~1.8GHz | 1.6GHz~2.5GHz | No | No |
+| TF-A 2026 | No | No | No | No | No | No |
+
 ### Other Options
 
 these options are only work for `normal` directory
@@ -231,7 +239,7 @@ HOW to flash:
 
 3. Update U-Boot in the WEB UI to flash the **FIT version FIP**.
 
-4. Use Flash Editor in the WEB UI to erase the UBI partition(or use command line: `mtd erase ubi`).
+4. Use Flash Editor in the WEB UI to erase the UBI partition(or use command line: `mtd erase ubi`), this step is only for nand devices.
 
 5. Try upgrade in firmware upgrade page with the OpenWrt/ImmortalWrt ubootmod firmware[2*](#ENDNOTE) [3*](#ENDNOTE), if not work, try next step.
 
@@ -295,13 +303,13 @@ fw_setenv failsafe 1 # Reboot to failsafe mode in next boot
 
 1*: If your device is a MMC device, back up all flash is not feasible. It depends on the size of the firmware, which is usually 200MB to 300MB.
 
-2*: If your device is a MMC device, you need upgrade GPT table which has production partition
+2*: If your device is a MMC device, you need upgrade GPT table which has production partition, then you needn't use ubootmod firmware, you can use the OpenWrt official firmware directly.
 
 3*: The OpenWrt/ImmortalWrt ubootmod firmware is a special firmware with FIT support, in this firmware, devicetree is loaded from the FIT image(bootargs = "root=/dev/fit0 rootwait"), and loaded from ubi_rootdisk. You'd better use a version after OpenWrt/ImmortalWrt 24.10.
 
 ---
 
-## Old Version (<2025)
+## Old Version ( < U-Boot 2025 )
 
 Now U-Boot 2022 and 2023 is **not maintained**(include Version2022/2023/2024).
 
@@ -328,7 +336,7 @@ It may cause some issues if you don't know what you are doing, so it's recommend
 
 ## Acknowledgement
 
-- [hanwckf](https://github.com/hanwckf/bl-mt798x)
-- [mtk-openwrt](https://github.com/mtk-openwrt)
 - [u-boot](https://github.com/u-boot/u-boot)
+- [mtk-openwrt](https://github.com/mtk-openwrt)
+- [hanwckf](https://github.com/hanwckf/bl-mt798x)
 - [Tianling](https://blog.imouto.in/)

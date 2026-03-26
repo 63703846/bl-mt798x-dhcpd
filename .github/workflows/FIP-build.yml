@@ -19,7 +19,7 @@ on:
         default: 'cmcc_a10'
         type: string
       FIP_VERSION: 
-        description: 'FIP version selection (all only for single model builds)'
+        description: 'FIP version selection ("all" option is only for single model builds)'
         required: true
         default: '2025'
         type: choice
@@ -28,6 +28,26 @@ on:
           - SP1
           - SP2
           - all
+      VARIANT:
+        description: 'Build variant ("all" option is only for single model builds)'
+        required: false
+        default: 'default'
+        type: choice
+        options:
+          - default
+          - ubootmod
+          - nonmbm
+          - openwrt
+          - all
+      EXTRA_OPTION:
+        description: 'Extra option'
+        required: false
+        default: 'default'
+        type: choice
+        options:
+          - default
+          - multi_layout
+          - dis_fixed_mtdparts
       REPO_URL:
         description: 'Source repository'
         required: true
@@ -38,25 +58,6 @@ on:
         required: true
         default: 'auto'
         type: string
-      VARIANT:
-        description: 'Build variant'
-        required: false
-        default: 'default'
-        type: choice
-        options:
-          - default
-          - ubootmod
-          - nonmbm
-          - openwrt
-      EXTRA_OPTION:
-        description: 'Extra option'
-        required: false
-        default: 'default'
-        type: choice
-        options:
-          - default
-          - multi_layout
-          - dis_fixed_mtdparts
       ssh:
         description: 'SSH connection to Actions'
         required: false
@@ -108,14 +109,20 @@ jobs:
 
         VARIANT_IN="${{ github.event.inputs.VARIANT }}"
         EXTRA_IN="${{ github.event.inputs.EXTRA_OPTION }}"
+        MODEL_IN="${{ github.event.inputs.MODEL }}"
 
         case "$VARIANT_IN" in
-          default|ubootmod|nonmbm|openwrt) ;;
+          default|all|ubootmod|nonmbm|openwrt) ;;
           *)
-            echo "Error: invalid VARIANT: '$VARIANT_IN' (expected default/ubootmod/nonmbm/openwrt)" >&2
+            echo "Error: invalid VARIANT: '$VARIANT_IN' (expected default/all/ubootmod/nonmbm/openwrt)" >&2
             exit 1
             ;;
         esac
+        if [ "$VARIANT_IN" = "all" ] && [ "$MODEL_IN" = "all" ]; then
+          echo "Error: VARIANT=all is only supported for single-model builds (MODEL must not be 'all')." >&2
+          exit 1
+        fi
+
 
         case "$EXTRA_IN" in
           default|multi_layout|dis_fixed_mtdparts) ;;
@@ -410,44 +417,51 @@ jobs:
             fi
           fi
 
-          for entry in $BUILD_MODELS; do
-            soc="${entry%%_*}"
-            model_name="${entry#*_}"
+          # Decide variant list for this version (version priority first)
+          if [ "$version" = "2025" ] || [ "$version" = "SP1" ] || [ "$version" = "SP2" ]; then
+            if [ "$VARIANT_INPUT" = "all" ]; then
+              VARIANTS_TO_BUILD=(default ubootmod nonmbm openwrt)
+            else
+              VARIANTS_TO_BUILD=($VARIANT_INPUT)
+            fi
+          else
+            VARIANTS_TO_BUILD=(default)
+          fi
 
-            # EXTRA_OPTION: effects all versions
-            case "$EXTRA_INPUT" in
-              default)
-                MULTI_LAYOUT=0
-                FIXED_MTDPARTS=1
-                ;;
-              multi_layout)
-                MULTI_LAYOUT=1
-                FIXED_MTDPARTS=1
-                ;;
-              dis_fixed_mtdparts)
-                MULTI_LAYOUT=0
-                FIXED_MTDPARTS=0
-                ;;
-            esac
+          for VARIANT in "${VARIANTS_TO_BUILD[@]}"; do
+            for entry in $BUILD_MODELS; do
+              soc="${entry%%_*}"
+              model_name="${entry#*_}"
 
-            # VARIANT: effective only for uboot-2025; for other versions, force to default to avoid inconsistent descriptions (since build.sh only checks VARIANT for SP1/SP2/2025)
-            if [ "$version" = "2025" ] || [ "$version" = "SP1" ] || [ "$version" = "SP2" ]; then
-              VARIANT="$VARIANT_INPUT"
-              # variant ubootmod does not support multi_layout (consistent with build.sh logic), so we force disable it here to avoid inconsistent descriptions in the output
+              # EXTRA_OPTION: effects all versions
+              case "$EXTRA_INPUT" in
+                default)
+                  MULTI_LAYOUT=0
+                  FIXED_MTDPARTS=1
+                  ;;
+                multi_layout)
+                  MULTI_LAYOUT=1
+                  FIXED_MTDPARTS=1
+                  ;;
+                dis_fixed_mtdparts)
+                  MULTI_LAYOUT=0
+                  FIXED_MTDPARTS=0
+                  ;;
+              esac
+
+              # variant ubootmod/openwrt does not support multi_layout
               if [ "$VARIANT" = "ubootmod" ] || [ "$VARIANT" = "openwrt" ]; then
                 MULTI_LAYOUT=0
               fi
-            else
-              VARIANT="default"
-            fi
 
-            echo "Building FIP for version ${version} (SOC: $soc, model: $model_name)..."
-            BOARD="$model_name" VERSION=${version} VARIANT="$VARIANT" MULTI_LAYOUT="$MULTI_LAYOUT" FIXED_MTDPARTS="$FIXED_MTDPARTS" SILENT=Y ./build.sh 2>&1 | tee "output/build-${soc}-${model_name}-${version}.log"
-            build_rc=${PIPESTATUS[0]}
+              echo "Building FIP for version ${version} (SOC: $soc, model: $model_name, variant: $VARIANT)..."
+              BOARD="$model_name" VERSION=${version} VARIANT="$VARIANT" MULTI_LAYOUT="$MULTI_LAYOUT" FIXED_MTDPARTS="$FIXED_MTDPARTS" SILENT=Y ./build.sh 2>&1 | tee "output/build-${soc}-${model_name}-${version}-${VARIANT}.log"
+              build_rc=${PIPESTATUS[0]}
 
-            if [ "$build_rc" -ne 0 ]; then
-              echo "Build failed: soc=$soc model=$model_name version=$version (rc=$build_rc), continuing to next"
-            fi
+              if [ "$build_rc" -ne 0 ]; then
+                echo "Build failed: soc=$soc model=$model_name version=$version variant=$VARIANT (rc=$build_rc), continuing to next"
+              fi
+            done
           done
 
           mkdir -p "temp_output_${version}"
@@ -544,7 +558,9 @@ jobs:
 
         echo "- Extra options: ${{ github.event.inputs.EXTRA_OPTION }}" >> release.txt
 
-        if [ "${{ github.event.inputs.VARIANT }}" = "nonmbm" ]; then
+        if [ "${{ github.event.inputs.VARIANT }}" = "all" ]; then
+          echo "- Enabled ALL variants (default/ubootmod/nonmbm/openwrt)" >> release.txt
+        elif [ "${{ github.event.inputs.VARIANT }}" = "nonmbm" ]; then
           echo "- Enabled NONMBM variant" >> release.txt
         elif [ "${{ github.event.inputs.VARIANT }}" = "ubootmod" ]; then
           echo "- Enabled UBOOTMOD variant" >> release.txt

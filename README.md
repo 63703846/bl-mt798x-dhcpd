@@ -4,7 +4,7 @@ A modified version of hanwckf's U-Boot for MT798x by Yuzhii, with support for DH
 
 Supports GitHub Actions for automatic builds, and can generate both normal and overclocked BL2.
 
-**Warnign: Flashing custom bootloaders can brick your device. Proceed with caution and at your own risk.**
+**Warning: Flashing custom bootloaders can brick your device. Proceed with caution and at your own risk.**
 
 ## About bl-mt798x
 
@@ -204,7 +204,7 @@ ARMPLL frequency range adjustment support for different platforms:
 | Version | mt7622 | mt7629 | mt7981 | mt7986 | mt7987 | mt7988 |
 | --- | --- | --- | --- | --- | --- | --- |
 | TF-A 2024 | No | No | 1.3GHz~1.8GHz | 1.6GHz~2.5GHz | No | No |
-| TF-A 2025 | No | No | 1.3GHz~1.8GHz | 1.6GHz~2.5GHz | No | No |
+| TF-A 2025 | 1.35GHz~1.7GHz | No | 1.3GHz~1.8GHz | 1.6GHz~2.5GHz | No | No |
 | TF-A 2026 | No | No | No | No | No | No |
 
 ### Other Options

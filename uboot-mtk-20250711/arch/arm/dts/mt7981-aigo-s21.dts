@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
 
 /dts-v1/;
 #include "mt7981.dtsi"
@@ -7,6 +7,8 @@
 / {
 	#address-cells = <1>;
 	#size-cells = <1>;
+	model = "mt7981-aigo_s21";
+	compatible = "mediatek,mt7981", "mediatek,mt7981-rfb";
 
 	chosen {
 		stdout-path = &uart0;
@@ -15,13 +17,13 @@
 
 	config {
 		bootcmd = "mtkboardboot";
-		blink_led = "red:status";
-		system_led = "blue:status";
+		blink_led = "red:system";
+		system_led = "green:system";
 	};
 
 	memory@40000000 {
 		device_type = "memory";
-		reg = <0x40000000 0x10000000>;
+		reg = <0x40000000 0x40000000>;
 	};
 
 	gpio-keys {
@@ -40,22 +42,22 @@
 		};
 	};
 
-	gpio-leds {
+	leds {
 		compatible = "gpio-leds";
 
 		led-0 {
-			label = "blue:status";
-			gpios = <&pio 11 GPIO_ACTIVE_HIGH>;
+			label = "red:system";
+			gpios = <&pio 6 GPIO_ACTIVE_LOW>;
 		};
 
 		led-1 {
-			label = "yellow:status";
-			gpios = <&pio 12 GPIO_ACTIVE_HIGH>;
+			label = "green:system";
+			gpios = <&pio 4 GPIO_ACTIVE_LOW>;
 		};
 
 		led-2 {
-			label = "red:status";
-			gpios = <&pio 13 GPIO_ACTIVE_HIGH>;
+			label = "internet:system";
+			gpios = <&pio 13 GPIO_ACTIVE_LOW>;
 		};
 	};
 
@@ -86,6 +88,18 @@
 	};
 };
 
+&mmc0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&mmc0_pins_default>;
+	bus-width = <8>;
+	max-frequency = <52000000>;
+	cap-mmc-highspeed;
+	cap-mmc-hw-reset;
+	vmmc-supply = <&reg_3p3v>;
+	non-removable;
+	status = "okay";
+};
+
 &pio {
 	spic_pins: spi1-pins-func-1 {
 		mux {
@@ -97,7 +111,7 @@
 	mmc0_pins_default: mmc0default {
 		mux {
 			function = "flash";
-			groups =  "emmc_45";
+			groups = "emmc_45";
 		};
 		conf-cmd-dat {
 			pins = "SPI0_CLK", "SPI0_MOSI", "SPI0_MISO",
